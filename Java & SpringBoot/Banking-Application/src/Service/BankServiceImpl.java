@@ -1,0 +1,100 @@
+package Service;
+
+import Domain.Account;
+import Domain.Transaction;
+import Domain.Type;
+import Repository.AccountRepository;
+import Repository.TransactionRepository;
+
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+public class BankServiceImpl implements BankService {
+
+    private final AccountRepository accountRepository = new AccountRepository();
+    private final TransactionRepository transactionRepository = new TransactionRepository();
+
+    @Override
+    public String openAccount(String name, String email, String accountType) {
+        String customerId = UUID.randomUUID().toString();
+
+        //Change Later --> 10+1=AC000011 --> AC<06>
+//        String accountNumber = UUID.randomUUID().toString();
+        String accountNumber = getAccountNumber();
+
+        Account account = new Account(accountNumber, accountType, (double) 0, customerId);
+        accountRepository.save(account);
+        return accountNumber;
+    }
+
+    @Override
+    public List<Account> listAccounts() {
+        return accountRepository.findAll().stream()
+                .sorted(Comparator.comparing(Account::getAccountNumber))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void deposit(String accountNumber, Double amount, String note) {
+        Account account=accountRepository.findByNumber(accountNumber)
+                .orElseThrow(()-> new RuntimeException("Account not found: "+ accountNumber));
+        account.setBalance(account.getBalance() + amount);
+        Transaction transaction = new Transaction(account.getAccountNumber(),
+                amount, UUID.randomUUID().toString(),note, LocalDateTime.now(), Type.DEPOSIT);
+        transactionRepository.add(transaction);
+    }
+
+    @Override
+    public void withdraw(String accountNumber, Double amount, String note) {
+        Account account=accountRepository.findByNumber(accountNumber)
+                .orElseThrow(()-> new RuntimeException("Account not found: "+ accountNumber));
+        if(account.getBalance().compareTo(amount)<0)
+            throw new RuntimeException("Insufficient Balance");
+        account.setBalance(account.getBalance() - amount);
+        Transaction transaction = new Transaction(account.getAccountNumber(),
+                amount, UUID.randomUUID().toString(),note, LocalDateTime.now(), Type.WITHDRAW);
+        transactionRepository.add(transaction);
+    }
+
+    @Override
+    public void transfer(String fromAcc, String toAcc, Double amount, String note) {
+        if(fromAcc.equals(toAcc))
+            throw new RuntimeException("Cannot transfer to your own Account");
+
+        Account from=accountRepository.findByNumber(fromAcc)
+                .orElseThrow(()-> new RuntimeException("Account not found: "+ fromAcc));
+        Account to=accountRepository.findByNumber(toAcc)
+                .orElseThrow(()-> new RuntimeException("Account not found: "+ toAcc));
+
+        if(from.getBalance().compareTo(amount)<0)
+            throw new RuntimeException("Insufficient Balance");
+
+        from.setBalance(from.getBalance() - amount);
+        to.setBalance(to.getBalance() + amount);
+
+        transactionRepository.add(new Transaction(from.getAccountNumber(),
+                amount, UUID.randomUUID().toString(),note, LocalDateTime.now(), Type.TRANSFER_OUT));
+        transactionRepository.add(new Transaction(to.getAccountNumber(),
+                amount, UUID.randomUUID().toString(),note, LocalDateTime.now(), Type.TRANSFER_IN));
+    }
+
+    @Override
+    public List<Transaction> getStatement(String account) {
+        return transactionRepository.findByAccount(account).stream()
+                .sorted(Comparator.comparing(Transaction::getTimestamp)).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Account> searchAccountByCustomerName(String q) {
+        String query=(q==null)?"":q.toLowerCase();
+        return List.of();
+    }
+
+    private String getAccountNumber() {
+        int size = accountRepository.findAll().size() + 1;
+        return String.format("AC%06d", size);
+    }
+}
